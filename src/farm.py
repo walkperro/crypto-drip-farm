@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 
 import requests
 
+from drivers import get_driver
+
 CONFIG_PATH = "config/config.json"
 
 
@@ -57,7 +59,7 @@ def get_session(config):
         print("[INFO] Not using proxy")
 
     session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Linux; Android 14; Termux) Python/requests CryptoDripFarm/0.1"
+        "User-Agent": "Mozilla/5.0 (Linux; Android 14; Termux) Python/requests CryptoDripFarm/0.2"
     })
     return session
 
@@ -72,39 +74,41 @@ def can_claim(faucet, last_run_at):
     return datetime.utcnow() - last_run_at >= timedelta(minutes=interval_min)
 
 
-def simulate_faucet_claim(session, faucet, wallet_address):
+def prompt_wallets_for_faucets(faucets):
     """
-    v1: Simulated faucet claim.
-
-    Later, you can replace this with real faucet logic for services
-    that explicitly allow API or programmatic claims.
+    Ask the user for a wallet address per coin type used by faucets.
     """
-    name = faucet["name"]
-    coin = faucet["coin"]
+    coins = sorted({f.get("coin") for f in faucets if f.get("coin")})
+    wallets = {}
 
-    print(f"[SIM] Claiming from faucet: {name} for coin: {coin} -> wallet: {wallet_address}")
-
-    import random
-    success = random.random() > 0.1  # ~90% simulated success rate
-    if success:
-        amount = random.randint(1, 20)  # fake units for testing
-        return True, amount, "ok"
-    else:
-        return False, 0, "simulated error"
+    print("[SETUP] Wallet configuration")
+    for coin in coins:
+        while True:
+            addr = input(f"Enter wallet address for coin '{coin}': ").strip()
+            if addr:
+                wallets[coin] = addr
+                break
+            else:
+                print("Wallet address cannot be empty. Try again.")
+    print("[SETUP] Wallets configured:", wallets)
+    return wallets
 
 
 def main_loop():
     config = load_config()
 
-    log_path = config.get("logging", {}).get("log_file", "logs/farm_log.csv")
-    init_log(log_path)
-
-    session = get_session(config)
-
     faucets = [f for f in config.get("faucets", []) if f.get("enabled", True)]
     if not faucets:
         print("[WARN] No faucets enabled in config. Exiting.")
         return
+
+    # Prompt user for wallet addresses per coin
+    wallets = prompt_wallets_for_faucets(faucets)
+
+    log_path = config.get("logging", {}).get("log_file", "logs/farm_log.csv")
+    init_log(log_path)
+
+    session = get_session(config)
 
     last_run = {f["name"]: None for f in faucets}
 
@@ -113,22 +117,33 @@ def main_loop():
     while True:
         for faucet in faucets:
             name = faucet["name"]
-            coin = faucet["coin"]
-            wallet = config.get("wallets", {}).get(coin)
+            coin = faucet.get("coin")
+            driver_name = faucet.get("driver", "demo")
 
+            if not coin:
+                print(f"[WARN] Faucet '{name}' has no coin specified, skipping.")
+                continue
+
+            wallet = wallets.get(coin)
             if not wallet:
-                print(f"[WARN] No wallet configured for coin '{coin}', skipping faucet '{name}'")
+                print(f"[WARN] No wallet configured for coin '{coin}', skipping faucet '{name}'.")
                 continue
 
             if not can_claim(faucet, last_run[name]):
                 continue
 
-            print(f"[INFO] Time to claim from {name} ({coin})")
+            print(f"[INFO] Time to claim from {name} ({coin}) via driver '{driver_name}'")
 
             try:
-                # For now this is a simulation function.
-                # Later, swap it for a real claim function per faucet/API.
-                success, amount, message = simulate_faucet_claim(session, faucet, wallet)
+                driver = get_driver(driver_name)
+            except ValueError as e:
+                msg = str(e)
+                log_claim(log_path, name, coin, 0, "driver_error", msg)
+                print(f"[ERROR] {msg}")
+                continue
+
+            try:
+                success, amount, message = driver(session, faucet, wallet)
                 last_run[name] = datetime.utcnow()
 
                 status_str = "success" if success else "fail"
