@@ -1,0 +1,29 @@
+{
+  "use_tor": true,
+  "tor_socks_proxy": "socks5h://127.0.0.1:9050",
+  "wallets": {
+    "btc": "YOUR_BTC_WALLET_HERE",
+    "ltc": "YOUR_LTC_WALLET_HERE"
+  },
+  "faucets": [
+    {
+      "name": "demo_btc_faucet",
+      "enabled": true,
+      "coin": "btc",
+      "claim_interval_minutes": 30,
+      "endpoint": "https://example.com/api/claim_btc",
+      "method": "GET"
+    },
+    {
+      "name": "demo_ltc_faucet",
+      "enabled": true,
+      "coin": "ltc",
+      "claim_interval_minutes": 60,
+      "endpoint": "https://example.com/api/claim_ltc",
+      "method": "POST"
+    }
+  ],
+  "logging": {
+    "log_file": "logs/farm_log.csv"
+  }
+}
